@@ -11,8 +11,8 @@ for array expression languages in the SciPython space.
 Installing
 ----------
 
-Just install [Anaconda][Anaconda](https://store.continuum.io/cshop/anaconda/)
-and it will work out of box.
+Just install [Anaconda](https://store.continuum.io/cshop/anaconda/) and it will
+work out of box.
 
 Or if you like suffering then install LLVM from your package manager and
 then have fun installing ``llvmpy`` and ``numpy`` from source.
