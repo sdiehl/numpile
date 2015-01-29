@@ -794,7 +794,7 @@ class LLVMEmitter(object):
         else:
             return self.generic_visit(node)
 
-### Type Mapping
+### == Type Mapping ==
 
 # Adapt the LLVM types to use libffi/ctypes wrapper so we can dynamically create
 # the appropriate C types for our JIT'd function at runtime.
