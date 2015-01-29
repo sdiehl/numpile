@@ -456,10 +456,6 @@ class PythonVisitor(ast.NodeVisitor):
     def visit_Pass(self, node):
         return Noop()
 
-    def visit_Lambda(self, node):
-        args = self.visit(node.args)
-        body = self.visit(node.body)
-
     def visit_Return(self, node):
         val = self.visit(node.value)
         return Return(val)
@@ -685,7 +681,7 @@ class LLVMEmitter(object):
 
         # Setup the register for return type.
         if rettype is not void_type:
-            self.locals['retval'] = self.builder.alloca(rettype, "retval")
+            self.locals['retval'] = self.builder.alloca(rettype, name="retval")
 
         map(self.visit, node.body)
         self.end_function()
@@ -727,7 +723,7 @@ class LLVMEmitter(object):
 
         # Setup the increment variable
         varname = node.var.id
-        inc = self.builder.alloca(int_type, varname)
+        inc = self.builder.alloca(int_type, name=varname)
         self.builder.store(start, inc)
         self.locals[varname] = inc
 
@@ -786,7 +782,7 @@ class LLVMEmitter(object):
             name = node.ref
             val = self.visit(node.val)
             ty = self.specialize(node)
-            var = self.builder.alloca(ty, name)
+            var = self.builder.alloca(ty, name=name)
             self.builder.store(val, var)
             self.locals[name] = var
             return var
@@ -797,9 +793,6 @@ class LLVMEmitter(object):
             return getattr(self, name)(node)
         else:
             return self.generic_visit(node)
-
-    def generic_visit(self, node):
-        raise NotImplementedError
 
 ### Type Mapping
 
