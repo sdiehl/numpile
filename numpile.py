@@ -293,7 +293,7 @@ class TypeInfer(object):
         begin = self.visit(node.begin)
         end = self.visit(node.end)
         self.constraints += [(varty, int32), (
-            begin, int64), (end, int32)]
+            begin, int32), (end, int32)]
         map(self.visit, node.body)
 
     def generic_visit(self, node):
@@ -537,6 +537,7 @@ def dump(node):
 
 pointer     = Type.pointer
 int_type    = Type.int()
+int64_type    = Type.int(64)
 float_type  = Type.float()
 double_type = Type.double()
 bool_type   = Type.int(1)
@@ -551,12 +552,12 @@ def array_type(elt_type):
     ], name='ndarray_' + str(elt_type))
 
 int32_array = pointer(array_type(int_type))
-int64_array = pointer(array_type(Type.int(64)))
+int64_array = pointer(array_type(int64_type))
 double_array = pointer(array_type(double_type))
 
 lltypes_map = {
     int32          : int_type,
-    int64          : int_type,
+    int64          : int64_type,
     float32        : float_type,
     double64       : double_type,
     array_int32    : int32_array,
@@ -619,8 +620,10 @@ class LLVMEmitter(object):
             return val.type
 
     def const(self, val):
-        if isinstance(val, (int, long)):
+        if isinstance(val, int):
             return Constant.int(int_type, val)
+        elif isinstance(val, long):
+            return Constant.int(int64_type, val)
         elif isinstance(val, float):
             return Constant.real(double_type, val)
         elif isinstance(val, bool):
@@ -636,6 +639,8 @@ class LLVMEmitter(object):
             return Constant.real(double_type, node.n)
         elif ty == int_type:
             return Constant.int(int_type, node.n)
+        elif ty == int64_type:
+            return Constant.int(int64_type, node.n)
 
     def visit_LitFloat(self, node):
         ty = self.specialize(node)
@@ -800,6 +805,7 @@ class LLVMEmitter(object):
 # the appropriate C types for our JIT'd function at runtime.
 _nptypemap = {
     'i': ctypes.c_int,
+    'l': ctypes.c_int64,
     'f': ctypes.c_float,
     'd': ctypes.c_double,
 }
