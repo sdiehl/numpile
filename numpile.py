@@ -9,17 +9,24 @@ import inspect
 import pprint
 import string
 import numpy as np
-from itertools import tee, izip
 
 from textwrap import dedent
 from collections import deque, defaultdict
 
-import llvm.core as lc
-import llvm.passes as lp
-import llvm.ee as le
-from llvm.core import Module, Builder, Function, Type, Constant
+import llvmlite.llvmpy.core as lc
+import llvmlite.llvmpy.passes as lp
+#import llvm.ee as le
+from llvmlite.llvmpy.core import Module, Builder, Function, Type, Constant
 
 DEBUG = False
+
+def eager_map(f, l):
+    """
+    py2-backwards compatible map() implementation
+    This code assumes in a ton of places that map() does eager eval, but in py3 it does lazy-eval.
+    """
+    return [f(e) for e in l]
+map = eager_map
 
 ### == Core Language ==
 
@@ -229,7 +236,7 @@ class TypeInfer(object):
         self.retty = TVar("$retty")
         for (arg, ty) in zip(node.args, self.argtys):
             arg.type = ty
-            self.env[arg.id] = ty
+            self.env[arg.arg] = ty # ??? why isn't arg.id defined at this point? It gets used later on.
         map(self.visit, node.body)
         return TFun(self.argtys, self.retty)
 
@@ -400,7 +407,7 @@ class PythonVisitor(ast.NodeVisitor):
             source = dedent(inspect.getsource(source))
         if isinstance(source, types.LambdaType):
             source = dedent(inspect.getsource(source))
-        elif isinstance(source, (str, unicode)):
+        elif isinstance(source, (bytes, str)):
             source = dedent(source)
         else:
             raise NotImplementedError
@@ -501,6 +508,9 @@ class PythonVisitor(ast.NodeVisitor):
         else:
             raise NotImplementedError
 
+    def visit_arg(self, node):
+        return node # ???
+
     def generic_visit(self, node):
         raise NotImplementedError
 
@@ -548,7 +558,7 @@ def array_type(elt_type):
         pointer(elt_type),  # data
         int_type,           # dimensions
         pointer(int_type),  # shape
-    ], name='ndarray_' + str(elt_type))
+    ]) #, name='ndarray_' + str(elt_type))
 
 int32_array = pointer(array_type(int_type))
 int64_array = pointer(array_type(Type.int(64)))
@@ -899,13 +909,15 @@ def dispatcher(fn):
 
 ### == Toplevel ==
 
-module = lc.Module.new('numpile.module')
+module = lc.Module('numpile.module')
 engine = None
 function_cache = {}
 
-tm = le.TargetMachine.new(features='', cm=le.CM_JITDEFAULT)
-eb = le.EngineBuilder.new(module)
-engine = eb.create(tm)
+# TODO: llvmlite.llvmpy does not include the executor module; so it can make llvm IR code,
+# but not actually compile it to machine code or inject and run it.
+#tm = le.TargetMachine.new(features='', cm=le.CM_JITDEFAULT)
+#eb = le.EngineBuilder.new(module)
+#engine = eb.create(tm)
 
 def autojit(fn):
     transformer = PythonVisitor()
