@@ -9,7 +9,6 @@ import inspect
 import pprint
 import string
 import numpy as np
-from itertools import tee, izip
 
 from textwrap import dedent
 from collections import deque, defaultdict
