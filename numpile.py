@@ -13,10 +13,8 @@ import numpy as np
 from textwrap import dedent
 from collections import deque, defaultdict
 
-import llvm.core as lc
-import llvm.passes as lp
-import llvm.ee as le
-from llvm.core import Module, Builder, Function, Type, Constant
+from llvmlite import ir
+import llvmlite.binding as llvm
 
 DEBUG = False
 
@@ -501,7 +499,7 @@ class PythonVisitor(ast.NodeVisitor):
             raise NotImplementedError
 
     def generic_visit(self, node):
-        raise NotImplementedError
+        raise NotImplementedError(ast.dump(node))
 
 ### == Pretty Printer ==
 
@@ -534,23 +532,31 @@ def dump(node):
 
 ### == LLVM Codegen ==
 
-pointer     = Type.pointer
-int_type    = Type.int()
-float_type  = Type.float()
-double_type = Type.double()
-bool_type   = Type.int(1)
-void_type   = Type.void()
-void_ptr    = pointer(Type.int(8))
+pointer     = ir.PointerType
+int_type    = ir.IntType(32)
+float_type  = ir.FloatType()
+double_type = ir.DoubleType()
+bool_type   = ir.IntType(1)
+void_type   = ir.VoidType()
+void_ptr    = pointer(ir.IntType(8))
 
 def array_type(elt_type):
-    return Type.struct([
-        pointer(elt_type),  # data
-        int_type,           # dimensions
-        pointer(int_type),  # shape
-    ], name='ndarray_' + str(elt_type))
+    struct_type = ir.global_context.get_identified_type('ndarray_' + str(elt_type))
+
+    # The type can already exist.
+    if struct_type.elements:
+        return struct_type
+
+    # If not, initialize it.
+    struct_type.set_body(
+        pointer(elt_type),        # data
+        ir.IntType(32),           # dimensions
+        pointer(ir.IntType(32)),  # shape
+    )
+    return struct_type
 
 int32_array = pointer(array_type(int_type))
-int64_array = pointer(array_type(Type.int(64)))
+int64_array = pointer(array_type(ir.IntType(64)))
 double_array = pointer(array_type(double_type))
 
 lltypes_map = {
@@ -581,10 +587,10 @@ class LLVMEmitter(object):
         self.argtys = argtys             # Argument types
 
     def start_function(self, name, module, rettype, argtypes):
-        func_type = lc.Type.function(rettype, argtypes, False)
-        function = lc.Function.new(module, func_type, name)
+        func_type = ir.FunctionType(rettype, argtypes, False)
+        function = ir.Function(module, func_type, name)
         entry_block = function.append_basic_block("entry")
-        builder = lc.Builder.new(entry_block)
+        builder = ir.IRBuilder(entry_block)
         self.exit_block = function.append_basic_block("exit")
         self.function = function
         self.builder = builder
@@ -619,29 +625,30 @@ class LLVMEmitter(object):
 
     def const(self, val):
         if isinstance(val, (int, long)):
-            return Constant.int(int_type, val)
+            return ir.Constant(int_type, val)
         elif isinstance(val, float):
-            return Constant.real(double_type, val)
+            return ir.Constant(double_type, val)
         elif isinstance(val, bool):
-            return Constant.int(bool_type, int(val))
+            return ir.Constant(bool_type, int(val))
         elif isinstance(val, str):
-            return Constant.stringz(val)
+            raise NotImplementedError
+            #return Constant.stringz(val)
         else:
             raise NotImplementedError
 
     def visit_LitInt(self, node):
         ty = self.specialize(node)
         if ty is double_type:
-            return Constant.real(double_type, node.n)
+            return ir.Constant(double_type, node.n)
         elif ty == int_type:
-            return Constant.int(int_type, node.n)
+            return ir.Constant(int_type, node.n)
 
     def visit_LitFloat(self, node):
         ty = self.specialize(node)
         if ty is double_type:
-            return Constant.real(double_type, node.n)
+            return ir.Constant(double_type, node.n)
         elif ty == int_type:
-            return Constant.int(int_type, node.n)
+            return ir.Constant(int_type, node.n)
 
     def visit_Noop(self, node):
         pass
@@ -729,7 +736,7 @@ class LLVMEmitter(object):
         # Setup the loop condition
         self.branch(test_block)
         self.set_block(test_block)
-        cond = self.builder.icmp(lc.ICMP_SLT, self.builder.load(inc), stop)
+        cond = self.builder.icmp_signed('<', self.builder.load(inc), stop)
         self.builder.cbranch(cond, body_block, end_block)
 
         # Generate the loop body
@@ -818,38 +825,35 @@ def wrap_function(func, engine):
     args_ctypes = map(wrap_type, args)
 
     functype = ctypes.CFUNCTYPE(ret_ctype, *args_ctypes)
-    fptr = engine.get_pointer_to_function(func)
+    fptr = engine.get_function_address(func.name)
 
     cfunc = functype(fptr)
     cfunc.__name__ = func.name
     return cfunc
 
 def wrap_type(llvm_type):
-    kind = llvm_type.kind
-    if kind == lc.TYPE_INTEGER:
+    if isinstance(llvm_type, ir.IntType):
         ctype = getattr(ctypes, "c_int"+str(llvm_type.width))
-    elif kind == lc.TYPE_DOUBLE:
+    elif isinstance(llvm_type, ir.DoubleType):
         ctype = ctypes.c_double
-    elif kind == lc.TYPE_FLOAT:
+    elif isinstance(llvm_type, ir.FloatType):
         ctype = ctypes.c_float
-    elif kind == lc.TYPE_VOID:
+    elif isinstance(llvm_type, ir.VoidType):
         ctype = None
-    elif kind == lc.TYPE_POINTER:
+    elif isinstance(llvm_type, ir.PointerType):
         pointee = llvm_type.pointee
-        p_kind = pointee.kind
-        if p_kind == lc.TYPE_INTEGER:
+        if isinstance(pointee, ir.IntType):
             width = pointee.width
             if width == 8:
                 ctype = ctypes.c_char_p
             else:
                 ctype = ctypes.POINTER(wrap_type(pointee))
-        elif p_kind == lc.TYPE_VOID:
+        elif isinstance(pointee, ir.VoidType):
             ctype = ctypes.c_void_p
         else:
             ctype = ctypes.POINTER(wrap_type(pointee))
-    elif kind == lc.TYPE_STRUCT:
+    elif isinstance(llvm_type, ir.IdentifiedStructType):
         struct_name = llvm_type.name.split('.')[-1]
-        struct_name = struct_name.encode('ascii')
         struct_type = None
 
         if struct_type and issubclass(struct_type, ctypes.Structure):
@@ -858,7 +862,7 @@ def wrap_type(llvm_type):
         if hasattr(struct_type, '_fields_'):
             names = struct_type._fields_
         else:
-            names = ["field"+str(n) for n in range(llvm_type.element_count)]
+            names = ["field"+str(n) for n in range(len(llvm_type.elements))]
 
         ctype = type(ctypes.Structure)(struct_name, (ctypes.Structure,),
                                        {'__module__': "numpile"})
@@ -867,7 +871,7 @@ def wrap_type(llvm_type):
                   for name, elem in zip(names, llvm_type.elements)]
         setattr(ctype, '_fields_', fields)
     else:
-        raise Exception("Unknown LLVM type %s" % kind)
+        raise Exception("Unknown LLVM type %s" % llvm_type)
     return ctype
 
 def wrap_ndarray(na):
@@ -898,13 +902,18 @@ def dispatcher(fn):
 
 ### == Toplevel ==
 
-module = lc.Module.new('numpile.module')
+llvm.initialize()
+llvm.initialize_native_target()
+llvm.initialize_native_asmprinter()
+
+module = ir.Module('numpile.module')
 engine = None
 function_cache = {}
 
-tm = le.TargetMachine.new(features='', cm=le.CM_JITDEFAULT)
-eb = le.EngineBuilder.new(module)
-engine = eb.create(tm)
+target = llvm.Target.from_default_triple()
+target_machine = target.create_target_machine()
+backing_mod = llvm.parse_assembly("")
+engine = llvm.create_mcjit_compiler(backing_mod, target_machine)
 
 def autojit(fn):
     transformer = PythonVisitor()
@@ -923,7 +932,7 @@ def arg_pytype(arg):
             return array(double64)
         elif arg.dtype == np.dtype('float'):
             return array(float32)
-    elif isinstance(arg, int) & (arg < sys.maxint):
+    elif isinstance(arg, int) and arg <= sys.maxsize:
         return int64
     elif isinstance(arg, float):
         return double64
@@ -967,20 +976,24 @@ def typeinfer(ast):
 
 def codegen(ast, specializer, retty, argtys):
     cgen = LLVMEmitter(specializer, retty, argtys)
-    mod = cgen.visit(ast)
-    cgen.function.verify()
+    cgen.visit(ast)
 
-    tm = le.TargetMachine.new(opt=3, cm=le.CM_JITDEFAULT, features='')
-    pms = lp.build_pass_managers(tm=tm,
-                                 fpm=False,
-                                 mod=module,
-                                 opt=3,
-                                 vectorize=False,
-                                 loop_vectorize=True)
-    pms.pm.run(module)
+    mod = llvm.parse_assembly(str(module))
+    mod.verify()
+
+    pmb = llvm.PassManagerBuilder()
+    pmb.opt_level=3
+    pmb.loop_vectorize = True
+
+    pm = llvm.ModulePassManager()
+    pmb.populate(pm)
+
+    pm.run(mod)
+
+    engine.add_module(mod)
 
     debug(cgen.function)
-    debug(module.to_native_assembly())
+    debug(target_machine.emit_assembly(mod))
     return cgen.function
 
 def debug(fmt, *args):
