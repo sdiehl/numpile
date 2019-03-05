@@ -11,14 +11,12 @@ for array expression languages in the SciPython space.
 Installing
 ----------
 
-Just install [Anaconda](https://store.continuum.io/cshop/anaconda/) and it will
-work out of box.
-
-Or if you like suffering then install LLVM from your package manager and
-then have fun installing ``llvmpy`` and ``numpy`` from source.
+Numpile requires ``numpy`` and ``llvmlite`` (the latter includes needed
+LLVM libraries). You can either try to install them using your OS package
+manager, or alternatively, using ``pip``:
 
 ```bash
-$ pip install llvmpy
+$ pip install llvmlite
 $ pip install numpy
 ```
 
