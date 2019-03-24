@@ -227,7 +227,7 @@ class TypeInfer(object):
         for (arg, ty) in zip(node.args, self.argtys):
             arg.type = ty
             self.env[arg.id] = ty
-        map(self.visit, node.body)
+        list(map(self.visit, node.body))
         return TFun(self.argtys, self.retty)
 
     def visit_Noop(self, node):
@@ -291,7 +291,7 @@ class TypeInfer(object):
         end = self.visit(node.end)
         self.constraints += [(varty, int32), (
             begin, int64), (end, int32)]
-        map(self.visit, node.body)
+        list(map(self.visit, node.body))
 
     def generic_visit(self, node):
         raise NotImplementedError
@@ -397,7 +397,7 @@ class PythonVisitor(ast.NodeVisitor):
             source = dedent(inspect.getsource(source))
         if isinstance(source, types.LambdaType):
             source = dedent(inspect.getsource(source))
-        elif isinstance(source, (str, unicode)):
+        elif isinstance(source, str):
             source = dedent(source)
         else:
             raise NotImplementedError
@@ -407,7 +407,7 @@ class PythonVisitor(ast.NodeVisitor):
         return self.visit(self._ast)
 
     def visit_Module(self, node):
-        body = map(self.visit, node.body)
+        body = list(map(self.visit, node.body))
         return body[0]
 
     def visit_Name(self, node):
@@ -424,8 +424,8 @@ class PythonVisitor(ast.NodeVisitor):
 
     def visit_Call(self, node):
         name = self.visit(node.func)
-        args = map(self.visit, node.args)
-        keywords = map(self.visit, node.keywords)
+        args = list(map(self.visit, node.args))
+        keywords = list(map(self.visit, node.keywords))
         return App(name, args)
 
     def visit_BinOp(self, node):
@@ -445,8 +445,8 @@ class PythonVisitor(ast.NodeVisitor):
 
     def visit_FunctionDef(self, node):
         stmts = list(node.body)
-        stmts = map(self.visit, stmts)
-        args = map(self.visit, node.args.args)
+        stmts = list(map(self.visit, stmts))
+        args = [Var(a.arg) for a in node.args.args]
         res = Fun(node.name, args, stmts)
         return res
 
@@ -475,9 +475,9 @@ class PythonVisitor(ast.NodeVisitor):
 
     def visit_For(self, node):
         target = self.visit(node.target)
-        stmts = map(self.visit, node.body)
+        stmts = list(map(self.visit, node.body))
         if node.iter.func.id in {"xrange", "range"}:
-            args = map(self.visit, node.iter.args)
+            args = list(map(self.visit, node.iter.args))
         else:
             raise Exception("Loop must be over range")
 
@@ -624,7 +624,7 @@ class LLVMEmitter(object):
             return val.type
 
     def const(self, val):
-        if isinstance(val, (int, long)):
+        if isinstance(val, int):
             return ir.Constant(int_type, val)
         elif isinstance(val, float):
             return ir.Constant(double_type, val)
@@ -655,7 +655,7 @@ class LLVMEmitter(object):
 
     def visit_Fun(self, node):
         rettype = to_lltype(self.retty)
-        argtypes = map(to_lltype, self.argtys)
+        argtypes = list(map(to_lltype, self.argtys))
         # Create a unique specialized name
         func_name = mangler(node.fname, self.argtys)
         self.start_function(func_name, module, rettype, argtypes)
@@ -689,7 +689,7 @@ class LLVMEmitter(object):
         if rettype is not void_type:
             self.locals['retval'] = self.builder.alloca(rettype, name="retval")
 
-        map(self.visit, node.body)
+        list(map(self.visit, node.body))
         self.end_function()
 
     def visit_Index(self, node):
@@ -741,7 +741,7 @@ class LLVMEmitter(object):
 
         # Generate the loop body
         self.set_block(body_block)
-        map(self.visit, node.body)
+        list(map(self.visit, node.body))
 
         # Increment the counter
         succ = self.builder.add(self.const(step), self.builder.load(inc))
@@ -822,7 +822,7 @@ def wrap_function(func, engine):
     args = func.type.pointee.args
     ret_type = func.type.pointee.return_type
     ret_ctype = wrap_type(ret_type)
-    args_ctypes = map(wrap_type, args)
+    args_ctypes = list(map(wrap_type, args))
 
     functype = ctypes.CFUNCTYPE(ret_ctype, *args_ctypes)
     fptr = engine.get_function_address(func.name)
@@ -895,7 +895,7 @@ def dispatcher(fn):
     def _call_closure(*args):
         cargs = list(fn._argtypes_)
         pargs = list(args)
-        rargs = map(wrap_arg, cargs, pargs)
+        rargs = list(map(wrap_arg, cargs, pargs))
         return fn(*rargs)
     _call_closure.__name__ = fn.__name__
     return _call_closure
@@ -941,7 +941,7 @@ def arg_pytype(arg):
 
 def specialize(ast, infer_ty, mgu):
     def _wrapper(*args):
-        types = map(arg_pytype, list(args))
+        types = list(map(arg_pytype, list(args)))
         spec_ty = TFun(argtys=types, retty=TVar("$retty"))
         unifier = unify(infer_ty, spec_ty)
         specializer = compose(unifier, mgu)
