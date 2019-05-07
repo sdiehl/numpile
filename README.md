@@ -24,20 +24,23 @@ Usage
 -----
 
 ```python
+import numpy as np
 from numpile import autojit
+
 
 @autojit
 def dot(a, b):
     c = 0
     n = a.shape[0]
     for i in range(n):
-       c += a[i]*b[i]
+        c += a[i] * b[i]
     return c
 
-a = np.array(range(1000,2000), dtype='int32')
-b = np.array(range(3000,4000), dtype='int32')
 
-print dot(a,b)
+a = np.arange(100, 200, dtype='int32')
+b = np.arange(300, 400, dtype='int32')
+result = dot(a, b) 
+print(result)
 ```
 
 License

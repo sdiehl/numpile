@@ -1,2 +1,2 @@
-llvmpy==0.11.1
+llvmlite
 numpy>=1.7.0  
