@@ -1,6 +1,7 @@
 # LLVM based numeric specializer in 1000 lines.
 from __future__ import print_function
 
+from functools import reduce
 import sys
 import ast
 import types
@@ -221,7 +222,6 @@ class TypeInfer(object):
             return self.generic_visit(node)
 
     def visit_Fun(self, node):
-        arity = len(node.args)
         self.argtys = [self.fresh() for v in node.args]
         self.retty = TVar("$retty")
         for (arg, ty) in zip(node.args, self.argtys):
@@ -425,7 +425,6 @@ class PythonVisitor(ast.NodeVisitor):
     def visit_Call(self, node):
         name = self.visit(node.func)
         args = list(map(self.visit, node.args))
-        keywords = list(map(self.visit, node.keywords))
         return App(name, args)
 
     def visit_BinOp(self, node):
@@ -436,8 +435,6 @@ class PythonVisitor(ast.NodeVisitor):
         return Prim(opname, [a, b])
 
     def visit_Assign(self, node):
-        targets = node.targets
-
         assert len(node.targets) == 1
         var = node.targets[0].id
         val = self.visit(node.value)
