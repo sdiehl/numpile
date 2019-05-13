@@ -296,7 +296,7 @@ class TypeInfer(object):
     def generic_visit(self, node):
         raise NotImplementedError
 
-class UnderDeteremined(Exception):
+class UnderDetermined(Exception):
     def __str__(self):
         return "The types in the function are not fully determined by the \
                 input types. Add annotations."
@@ -958,7 +958,7 @@ def specialize(ast, infer_ty, mgu):
                 function_cache[key] = pyfunc
                 return pyfunc(*args)
         else:
-            raise UnderDeteremined()
+            raise UnderDetermined()
     return _wrapper
 
 def typeinfer(ast):
