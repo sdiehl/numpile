@@ -101,7 +101,7 @@ class Index(ast.AST):
         self.ix = ix
 
 class Const(object):
-    _fields = ["val", "ix"]
+    _fields = ["val"]
 
     def __init__(self, val):
         self.val = val
