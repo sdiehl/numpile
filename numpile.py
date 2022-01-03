@@ -100,6 +100,12 @@ class Index(ast.AST):
         self.val = val
         self.ix = ix
 
+class Const(object):
+    _fields = ["val"]
+
+    def __init__(self, val):
+        self.val = val
+
 class Noop(ast.AST):
     _fields = []
 
@@ -188,6 +194,7 @@ int32 = TCon("Int32")
 int64 = TCon("Int64")
 float32 = TCon("Float")
 double64 = TCon("Double")
+boolean = TCon("Bool")
 void = TCon("Void")
 array = lambda t: TApp(TCon("Array"), t)
 
@@ -220,6 +227,17 @@ class TypeInfer(object):
             return getattr(self, name)(node)
         else:
             return self.generic_visit(node)
+
+    def visit_Const(self, node):
+        if isinstance(node.val, int):
+            ty = int64
+        elif isinstance(node.val, float):
+            ty = double64
+        elif isinstance(node.val, bool):
+            ty = boolean
+        else:
+            raise NotImplementedError(node.value)
+        return ty
 
     def visit_Fun(self, node):
         self.argtys = [self.fresh() for v in node.args]
@@ -495,6 +513,9 @@ class PythonVisitor(ast.NodeVisitor):
         else:
             raise NotImplementedError
 
+    def visit_Constant(self, node):
+        return Const(node.value)
+
     def generic_visit(self, node):
         raise NotImplementedError(ast.dump(node))
 
@@ -533,7 +554,7 @@ pointer     = ir.PointerType
 int_type    = ir.IntType(32)
 float_type  = ir.FloatType()
 double_type = ir.DoubleType()
-bool_type   = ir.IntType(1)
+bool_type   = ir.IntType(32)
 void_type   = ir.VoidType()
 void_ptr    = pointer(ir.IntType(8))
 
@@ -563,7 +584,8 @@ lltypes_map = {
     double64       : double_type,
     array_int32    : int32_array,
     array_int64    : int64_array,
-    array_double64 : double_array
+    array_double64 : double_array,
+    boolean        : bool_type,
 }
 
 def to_lltype(ptype):
@@ -621,17 +643,20 @@ class LLVMEmitter(object):
             return val.type
 
     def const(self, val):
-        if isinstance(val, int):
+        if isinstance(val, bool):
+            return ir.Constant(bool_type, int(val))
+        elif isinstance(val, int):
             return ir.Constant(int_type, val)
         elif isinstance(val, float):
             return ir.Constant(double_type, val)
-        elif isinstance(val, bool):
-            return ir.Constant(bool_type, int(val))
         elif isinstance(val, str):
             raise NotImplementedError
             #return Constant.stringz(val)
         else:
             raise NotImplementedError
+
+    def visit_Const(self, node):
+        return self.const(node.val)
 
     def visit_LitInt(self, node):
         ty = self.specialize(node)
@@ -796,6 +821,9 @@ class LLVMEmitter(object):
             return getattr(self, name)(node)
         else:
             return self.generic_visit(node)
+    
+    def generic_visit(self, node):
+        raise NotImplementedError(ast.dump(node))
 
 ### == Type Mapping ==
 
